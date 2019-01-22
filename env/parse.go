@@ -4,14 +4,21 @@ package env
 
 import (
 	"fmt"
-	// "os"
+	"log"
 	"reflect"
 	"strconv"
 	"strings"
 )
 
-// Some comment about borrowing from encoding/json?   But we're not really.
-// Maybe the error type (struct name, field name, field type, source string, etc.)
+// Notes
+//
+// Unlike json.Unmarshal(), we aren't deserializing a rich, nested, object
+// structure.  This means that the more-complex logic in encoding/json's
+// decode.go file is simply not applicable.  We do, however, want to allow the
+// convenience of embedded structures (or pointers to them) for shared parameter
+// values.  We also want to allow pointers to values in order to unambiguously
+// determine whether a value was set or not; otherwise, zero-values are assumed
+// to be unset.
 
 // Can't make a map literal a const!
 var (
@@ -33,8 +40,33 @@ var (
 	}
 )
 
+// ParseFieldError represents an error with a specific field
+type ParseFieldError struct {
+	Struct  string // name of the struct containing the field
+	Field   string // name of the field holding the Go value
+	Message string
+}
+
+func (e *ParseFieldError) Error() string {
+	return fmt.Sprintf("parse error with Go struct field %s.%s: %s", e.Struct, e.Field, e.Message)
+}
+
+// ParseTypeError represents a type conversion error
+type ParseTypeError struct {
+	ParseFieldError
+	Value string       // the value that failed to parse
+	Type  reflect.Type // type of Go value that could not be assigned/converted to
+	// Struct string       // name of the struct containing the field
+	// Field  string       // name of the field holding the Go value
+}
+
+func (e *ParseTypeError) Error() string {
+	return fmt.Sprintf("cannot parse %q into Go struct field %s.%s of type %s", e.Value, e.Struct, e.Field, e.Type)
+}
+
 // ParsingError needs a better name, and is used when a parsing ot assignment
-// problem occurs.
+// problem occurs.  It should eventually be like the error from encoding/json
+// and provide the name/type of the failing field.
 type ParsingError struct {
 	Message string
 }
@@ -45,83 +77,180 @@ func (e *ParsingError) Error() string {
 }
 
 // Parse deserializes values from the environment map (as returned by
-// env.Extract()) into the given object, based on name and type.
+// env.Extract()) into the given object, based on name and type. Returns any
+// unused keys/values and the first error encountered (if any).
 // (TODO: tag values for parsing hints and/or aliases?)
-func Parse(vars map[string]string, out interface{}) (err error) {
+func Parse(vars map[string]string, out interface{}) (unused map[string]string, err error) {
+	unused = make(map[string]string)
 	val := reflect.ValueOf(out)
 
 	// we expect a pointer to a structure...
 	if val.Kind() != reflect.Ptr {
-		err = &ParsingError{"expected pointer at 'out' argument"}
+		err = &ParseFieldError{"(struct)", "(root)", "expected pointer"}
 		return
 	}
 
 	val = val.Elem()
 	if !val.CanSet() {
-		err = &ParsingError{"cannot set values in 'out'"}
+		err = &ParseFieldError{"(struct)", "(root)", "cannot set values"}
 		return
 	}
 
-	structType := val.Type()
-	fields := val.NumField()
-	fmt.Printf("struct type: %v, fields: %d\n", structType, fields)
+	// structType := val.Type()
+	// fields := val.NumField()
 
 	for k, v := range vars {
-		// fmt.Printf("parsing %q: %q\n", k, v)
-		found := false
+		// found := false
 
-		for fi := 0; fi < fields; fi++ {
-			sf := structType.Field(fi)
-			// fmt.Printf("  - %+v\n", sf)
-			found = strings.EqualFold(k, sf.Name)
-			if found {
-				vf := val.Field(fi)
-				// fmt.Printf("  - %+v MATCH (canset: %+v)\n", sf, vf.CanSet())
-				// if (!vf.CanSet()) {
-				// 	err = &ParsingError{fmt.Sprintf("cannot set values in 'out.%s'", sf.Name)}
-				// 	return
-				// }
-				err = setField(v, vf, sf)
-				if err != nil {
-					return
-				}
-				break
-			}
+		// for fi := 0; fi < fields; fi++ {
+		// 	sf := structType.Field(fi)
+		// 	log.Printf("field %d: %q %s", fi, sf.Name, sf.Type.Kind())
+		// 	// TODO: make case-(in)sensitve an option?
+		// 	// found = strings.EqualFold(k, sf.Name)
+		// 	found = k == sf.Name
+		// 	if found {
+		// 		vf := val.Field(fi)
+		// 		err = setField(v, vf, sf)
+		// 		if err != nil {
+		// 			return
+		// 		}
+		// 		break
+		// 	}
+		// }
+		var found bool
+		found, err = parseValue(k, v, val)
+		if err != nil {
+			return
 		}
+
 		if !found {
-			// fmt.Printf("  - No field found for %q\n", k)
-			// TODO: add to "unused" return value?
+			unused[k] = v
 		}
 	}
 
 	return
 }
 
-// TODO: make the string-to-value parsers into separate (and testable!)
-// functions
+func dbgField(structVal reflect.Value, i int, field reflect.Value) {
+	sf := structVal.Type().Field(i)
+	typeDesc := make([]string, 0)
+	typ := field.Type()
+	for ; typ.Kind() == reflect.Ptr; typ = typ.Elem() {
+		typeDesc = append(typeDesc, "ptr-to")
+	}
+	typeDesc = append(typeDesc, typ.String())
+
+	log.Printf("field [%d] %s %s (%s):", i, sf.Name, field.Type(), strings.Join(typeDesc, " "))
+}
+
+// parseValue finds the field that matches key and attempts to set the value.
+// Recurses through inner/embedded structs transparently.
+func parseValue(key string, value string, into reflect.Value) (found bool, err error) {
+	log.Printf("looking for %q in %s...", key, into.Type().String())
+	if into.Kind() != reflect.Struct {
+		err = &ParsingError{fmt.Sprintf("expected struct, got %s", into.Kind())}
+		return
+	}
+
+	if !into.CanSet() {
+		err = &ParsingError{"cannot set values in 'into'"}
+		return
+	}
+
+	structType := into.Type()
+	fields := into.NumField()
+
+	for fi := 0; fi < fields; fi++ {
+		field := into.Field(fi)
+		dbgField(into, fi, field)
+
+		kind := typeIndirect(field.Type()).Kind()
+
+		if kind == reflect.Struct {
+			// recurse!
+			found, err = parseValue(key, value, ensure(field))
+			if err != nil || found {
+				return
+			}
+			continue
+		}
+
+		sf := structType.Field(fi)
+
+		// TODO: make case-(in)sensitve an option?
+		// found = strings.EqualFold(key, sf.Name)
+		if key == sf.Name {
+			found = true
+			err = setField(value, ensure(field), sf)
+			return
+		}
+	}
+
+	return
+}
+
+// ensure takes a cue from encoding/json's decode.go helper 'indirect' that
+// does something similar... given a value/field (which may be a pointer),
+// creates the underlying data field when needed, and returns the actual
+// settable value
+func ensure(field reflect.Value) reflect.Value {
+	// This could be a 'for' to handle arbitrarily-deep pointer chains.
+	for field.Kind() == reflect.Ptr {
+		if field.IsNil() {
+			log.Printf("ensuring %q for %q...", field.Type().Elem(), field.Type())
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		field = field.Elem()
+	}
+
+	log.Printf("returning field...")
+	return field
+}
+
+func typeIndirect(typ reflect.Type) reflect.Type {
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	return typ
+}
 
 func setField(from string, field reflect.Value, sf reflect.StructField) (err error) {
-	fmt.Printf("attempting to set field %q (%s, %v) from %q...\n", sf.Name, sf.Type, sf.Type.Kind(), from)
+	// log.Printf("attempting to set field %q (%s, %v) from %q...", sf.Name, sf.Type, sf.Type.Kind(), from)
 	if !field.CanSet() {
 		err = &ParsingError{fmt.Sprintf("cannot set value in %q", sf.Name)}
 		return
 	}
 
-	kind := sf.Type.Kind()
+	// typ := sf.Type
+	// kind := typ.Kind()
+	//
+	// if kind == reflect.Ptr {
+	// 	typ = typ.Elem()
+	// 	kind = typ.Kind()
+	//
+	// 	if field.IsNil() {
+	// 		field.Set(reflect.New(typ))
+	// 		field = field.Elem()
+	// 	}
+	// }
+
+	kind := field.Kind()
+
 	switch kind {
 
+	case reflect.Ptr:
+		log.Fatalf("should never see a pointer (for field %s %s)", sf.Name, sf.Type)
+
 	case reflect.Bool:
-		if strings.EqualFold(from, "true") || strings.EqualFold(from, "on") || strings.EqualFold(from, "yes") || from == "1" {
-			field.SetBool(true)
-		} else if strings.EqualFold(from, "false") || strings.EqualFold(from, "off") || strings.EqualFold(from, "no") || from == "0" {
-			field.SetBool(false)
-		} else {
-			err = &ParsingError{fmt.Sprintf("unknown bool value: %q", from)}
+		b, ok := parseBool(from)
+		if !ok {
+			err = &ParsingError{fmt.Sprintf("cannot parse %q as bool", from)}
 			return
 		}
+		field.SetBool(b)
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		n, err2 := strconv.ParseInt(from, 10, kindBits[kind]) // use actual width?
+		n, err2 := strconv.ParseInt(from, 10, kindBits[kind])
 		if err2 != nil {
 			err = err2
 			return
@@ -129,7 +258,7 @@ func setField(from string, field reflect.Value, sf reflect.StructField) (err err
 		field.SetInt(n)
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		n, err2 := strconv.ParseUint(from, 10, kindBits[kind]) // use actual width?
+		n, err2 := strconv.ParseUint(from, 10, kindBits[kind])
 		if err2 != nil {
 			err = err2
 			return
@@ -148,59 +277,30 @@ func setField(from string, field reflect.Value, sf reflect.StructField) (err err
 
 		// Struct?
 	default:
-		err = &ParsingError{fmt.Sprintf("env parsing does not support parsing into %q", kind)}
+		err = &ParsingError{fmt.Sprintf("env parsing does not support parsing into %q (%q)", kind, sf.Name)}
 	}
 
 	return
 }
 
-// func inspect(val reflect.Value, depth int) {
-// 	if depth > 10 {
-// 		fmt.Println("TOO DEEP!")
-// 		return
-// 	}
-// 	pad := strings.Repeat("  ", depth)
-// 	// val := reflect.ValueOf(i)
-// 	kind := val.Kind()
-// 	fmt.Printf("%s%s (settable: %v)\n", pad, kind, val.CanSet())
-//
-// 	switch kind {
-//
-// 	case reflect.Ptr:
-// 		inspect(val.Elem(), depth+1)
-//
-// 	case reflect.Struct:
-// 		structT := val.Type()
-// 		fields := val.NumField()
-// 		// fmt.Printf("%s-fields: %d\n", pad, fields)
-// 		for fi := 0; fi < fields; fi++ {
-// 			sf := structT.Field(fi)
-// 			flag, ok := sf.Tag.Lookup("flag")
-// 			// fmt.Printf("%s-%s (flag: %q %v, pkg: %q, anon: %v, tag: %+v)\n", pad, sf.Name, flag, ok, sf.PkgPath, sf.Anonymous, sf.Tag)
-// 			fmt.Printf("%s-%s %q %v\n", pad, sf.Name, flag, ok)
-// 			inspect(val.Field(fi), depth+1)
-// 		}
-//
-// 	case reflect.Slice:
-// 		sliceT := val.Type()
-// 		fmt.Printf("%s %s\n", pad, sliceT.Elem().Kind())
-// 		// inspect(sliceT.Elem(), depth+1)
-// 	}
-// }
-//
-// type config struct {
-// 	// secret  string `json:"nope"`
-// 	// AnInt   int    `flag:"--i"`
-// 	// AString string `whatever`
-// 	Debug     bool     `flag:"--debug"`
-// 	Namespace string   `flag:"--namespace"`
-// 	Strings   []string `flag:"--string" flagOpt:"???"`
-// }
-//
-// func (c *config) foo() {
-//
-// }
-//
-// func (c *config) Bar() {
-//
-// }
+// TODO... make true/false string values data-driven
+// Should this fail with an error, or simply a !ok?
+func parseBool(from string) (result bool, ok bool) {
+	// We're using a case-insensitive(-ish) map, by using lower-case and forcing
+	// `from` to lower-case when checking.  Note that this is only safe because
+	// all of our strings are ASCII... there are unicode case-folding issues
+	// outside of this range.
+	known := map[string]bool{
+		"true":  true,
+		"on":    true,
+		"yes":   true,
+		"1":     true,
+		"false": false,
+		"off":   false,
+		"no":    false,
+		"0":     false,
+	}
+
+	result, ok = known[strings.ToLower(from)]
+	return
+}
