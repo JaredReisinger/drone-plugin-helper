@@ -5,46 +5,54 @@ Simplifies Drone plugins that wrap command-line tools.
 
 ## Getting started
 
-To write a Drone plugin to wrap a command-line tool, all you really need to do is create a struct that represents the available command-line options, and then let the library take care of everything else.  For example, to handle the first several options for Bash’s `ls` command (assuming it’s a standalone executable):
+To write a Drone plugin to wrap a command-line tool, all you really need to do is create a struct that represents the available command-line options, and then let the library take care of everything else.  For example, to handle the first several options for the `curl` command:
 
 ```text
--a, --all                  do not ignore entries starting with .
--A, --almost-all           do not list implied . and ..
-    --author               with -l, print the author of each file
--b, --escape               print C-style escapes for nongraphic characters
-    --block-size=SIZE      scale sizes by SIZE before printing them; e.g.,
-                             '--block-size=M' prints sizes in units of
-                             1,048,576 bytes; see SIZE format below
--B, --ignore-backups       do not list implied entries ending with ~
+Usage: curl [options...] <url>
+     --abstract-unix-socket <path> Connect via abstract Unix domain socket
+     --anyauth       Pick any authentication method
+ -a, --append        Append to target file when uploading
+     --basic         Use HTTP Basic Authentication
+     --cacert <file> CA certificate to verify peer against
+     --capath <dir>  CA directory to verify peer against
+ -E, --cert <certificate[:password]> Client certificate file and password
+     --cert-status   Verify the status of the server certificate
+     --cert-type <type> Certificate file type (DER/PEM/ENG)
 ```
 
 ... you only need to create the following:
 
 ```Go
 type Params struct {
-  All           bool
-  AlmostAll     bool
-  Author        string
-  Escape        bool
-  BlockSize     string
-  IgnoreBackups bool
+  AbstractUnixSocket string
+  Anyauth            bool
+  Append             bool
+  Basic              bool
+  Cacert             string
+  Capath             string
+  Cert               string
+  CertStatus         bool
+  CertType           string
 }
 ```
 
 The library will take care of matching these with the environment variables
 
 ```text
-PLUGIN_ALL
-PLUGIN_ALMOST_ALL
-PLUGIN_AUTHOR
-PLUGIN_ESCAPE
-PLUGIN_BLOCK_SIZE
-PLUGIN_IGNORE_BACKUPS
+PLUGIN_ABSTRACT_UNIX_SOCKET
+PLUGIN_ANYAUTH
+PLUGIN_APPEND
+PLUGIN_BASIC
+PLUGIN_CACERT
+PLUGIN_CAPATH
+PLUGIN_CERT
+PLUGIN_CERT_STATUS
+PLUGIN_CERT_TYPE
 ```
 
-... and generating the appropriate matching command-lines.
+... and then generating the appropriate matching command-lines.
 
-The code in `main()` is as simple as:
+The code in `main()` is then as simple as:
 
 ```Go
 package main
@@ -54,12 +62,31 @@ import (
 )
 
 func main() {
-  simple.Exec("ls", &Params{})
+  simple.Exec("curl", &Params{})
 }
 ```
 
 All that’s left is for you to package the tool along with the Go executable into a Docker image.
 
+
+### “Subcommand”-style tools
+
+Another very common pattern for command-line tools is for the initial command-line arguemnt to be a subcommand, often with its own specific options.  Tools like `git` and `helm` are examples of this.  Since this is such a common pattern, there is a helper for this, as well.  The `example/` subdirectory uses this helper to show how a plugin for `helm` could be written.
+
+
+### Overriding the defaults
+
+If the helpers’ default processing doesn’t meet your needs, you can tag the fields with `env:""` and/or `cmd:""` metadata:
+
+```Go
+type Params struct {
+  WeirdName string `cmd:"--surprise"` // use "--surprise" instead of "--weird-name" as the option name
+  Command   string `cmd:",positional"`  // use the value directly, with no "--command" flag prefix
+  Extra     string `cmd:",omit"`
+}
+```
+
+But please see “Best practices”, below, for ways to avoid needing these overrides.
 
 ## Best practices
 
@@ -96,6 +123,7 @@ go build -v -o ./plugin-example ./example
 PLUGIN_COMMAND=help ./plugin-example
 ```
 
+----
 
 ## Background
 

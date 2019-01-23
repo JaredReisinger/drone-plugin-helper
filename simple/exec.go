@@ -20,3 +20,27 @@ func Exec(command string, params interface{}) {
 
 	cmd.Exec(command, params)
 }
+
+// Subcommand is minimal param data needed to choose subcommand-specific
+// parameters.  For convenience, it can also be used as the first embedded
+// field in any command-specific parameter struct definitions.  It assumes that
+// the subcommand is indicated via the PLUGIN_COMMAND environment variable.
+type Subcommand struct {
+	Command string `cmd:",positional"`
+}
+
+// ExecSubcommand is the all-in-one method for tools which have subcommands,
+// like `git` or `helm`.
+func ExecSubcommand(command string, paramsMap map[string]interface{}) {
+	subcommand := &Subcommand{}
+	_, err := env.Parse(env.Extract(os.Environ(), "PLUGIN_"), subcommand)
+	if err != nil {
+		log.Fatalf("error parsing environment: %+v\n", err)
+	}
+	params, ok := paramsMap[subcommand.Command]
+	if !ok {
+		log.Fatalf("subcommand %q not recognized\n", subcommand.Command)
+	}
+
+	Exec(command, params)
+}
