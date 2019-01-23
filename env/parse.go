@@ -100,23 +100,6 @@ func Parse(vars map[string]string, out interface{}) (unused map[string]string, e
 	// fields := val.NumField()
 
 	for k, v := range vars {
-		// found := false
-
-		// for fi := 0; fi < fields; fi++ {
-		// 	sf := structType.Field(fi)
-		// 	log.Printf("field %d: %q %s", fi, sf.Name, sf.Type.Kind())
-		// 	// TODO: make case-(in)sensitve an option?
-		// 	// found = strings.EqualFold(k, sf.Name)
-		// 	found = k == sf.Name
-		// 	if found {
-		// 		vf := val.Field(fi)
-		// 		err = setField(v, vf, sf)
-		// 		if err != nil {
-		// 			return
-		// 		}
-		// 		break
-		// 	}
-		// }
 		var found bool
 		found, err = parseValue(k, v, val)
 		if err != nil {
@@ -131,22 +114,22 @@ func Parse(vars map[string]string, out interface{}) (unused map[string]string, e
 	return
 }
 
-func dbgField(structVal reflect.Value, i int, field reflect.Value) {
-	sf := structVal.Type().Field(i)
-	typeDesc := make([]string, 0)
-	typ := field.Type()
-	for ; typ.Kind() == reflect.Ptr; typ = typ.Elem() {
-		typeDesc = append(typeDesc, "ptr-to")
-	}
-	typeDesc = append(typeDesc, typ.String())
-
-	log.Printf("field [%d] %s %s (%s):", i, sf.Name, field.Type(), strings.Join(typeDesc, " "))
-}
+// func dbgField(structVal reflect.Value, i int, field reflect.Value) {
+// 	sf := structVal.Type().Field(i)
+// 	typeDesc := make([]string, 0)
+// 	typ := field.Type()
+// 	for ; typ.Kind() == reflect.Ptr; typ = typ.Elem() {
+// 		typeDesc = append(typeDesc, "ptr-to")
+// 	}
+// 	typeDesc = append(typeDesc, typ.String())
+//
+// 	log.Printf("field [%d] %s %s (%s):", i, sf.Name, field.Type(), strings.Join(typeDesc, " "))
+// }
 
 // parseValue finds the field that matches key and attempts to set the value.
 // Recurses through inner/embedded structs transparently.
 func parseValue(key string, value string, into reflect.Value) (found bool, err error) {
-	log.Printf("looking for %q in %s...", key, into.Type().String())
+	// log.Printf("looking for %q in %s...", key, into.Type().String())
 	if into.Kind() != reflect.Struct {
 		err = &ParsingError{fmt.Sprintf("expected struct, got %s", into.Kind())}
 		return
@@ -162,7 +145,7 @@ func parseValue(key string, value string, into reflect.Value) (found bool, err e
 
 	for fi := 0; fi < fields; fi++ {
 		field := into.Field(fi)
-		dbgField(into, fi, field)
+		// dbgField(into, fi, field)
 
 		kind := typeIndirect(field.Type()).Kind()
 
@@ -197,13 +180,13 @@ func ensure(field reflect.Value) reflect.Value {
 	// This could be a 'for' to handle arbitrarily-deep pointer chains.
 	for field.Kind() == reflect.Ptr {
 		if field.IsNil() {
-			log.Printf("ensuring %q for %q...", field.Type().Elem(), field.Type())
+			// log.Printf("ensuring %q for %q...", field.Type().Elem(), field.Type())
 			field.Set(reflect.New(field.Type().Elem()))
 		}
 		field = field.Elem()
 	}
 
-	log.Printf("returning field...")
+	// log.Printf("returning field...")
 	return field
 }
 
@@ -221,25 +204,12 @@ func setField(from string, field reflect.Value, sf reflect.StructField) (err err
 		return
 	}
 
-	// typ := sf.Type
-	// kind := typ.Kind()
-	//
-	// if kind == reflect.Ptr {
-	// 	typ = typ.Elem()
-	// 	kind = typ.Kind()
-	//
-	// 	if field.IsNil() {
-	// 		field.Set(reflect.New(typ))
-	// 		field = field.Elem()
-	// 	}
-	// }
-
 	kind := field.Kind()
 
 	switch kind {
 
 	case reflect.Ptr:
-		log.Fatalf("should never see a pointer (for field %s %s)", sf.Name, sf.Type)
+		log.Fatalf("should never see a pointer (for field %s %s)", sf.Name, field.Type())
 
 	case reflect.Bool:
 		b, ok := parseBool(from)

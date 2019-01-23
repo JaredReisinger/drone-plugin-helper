@@ -4,20 +4,22 @@ package cmd
 import (
 	"fmt"
 	"reflect"
-	"regexp"
+	// "regexp"
 	"strconv"
 	"strings"
+
+	"github.com/JaredReisinger/drone-plugin-helper/names"
 )
 
 const (
-	tagName      = "cmd"
-	termReString = "[[:upper:]][^[:upper:]]*"
+	tagName = "cmd"
+	// termReString = "[[:upper:]](?:[[:upper:]]+|[^[:upper:]]+)"
 )
 
-var (
-	matchRe = regexp.MustCompile(fmt.Sprintf("^(?:%s)+$", termReString))
-	termRe  = regexp.MustCompile(termReString)
-)
+// var (
+// 	matchRe = regexp.MustCompile(fmt.Sprintf("^(%s)+$", termReString))
+// 	termRe  = regexp.MustCompile(termReString)
+// )
 
 // Create generates the command line
 // TODO: pass the order? Is that defined by the struct?
@@ -183,11 +185,10 @@ func parseTagInfo(tag string) (info tagInfo, err error) {
 }
 
 func fieldToParamName(name string) (string, bool) {
-	if !matchRe.MatchString(name) {
+	terms, err := names.Split(name)
+	if err != nil {
 		return "", false
 	}
-
-	terms := termRe.FindAllString(name, -1)
 
 	var b strings.Builder
 	for i, term := range terms {

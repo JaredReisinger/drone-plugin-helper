@@ -3,6 +3,8 @@ package env
 import (
 	"strings"
 	"unicode"
+
+	"github.com/JaredReisinger/drone-plugin-helper/names"
 )
 
 // Extract retrieves all environment variables with the given prefix, returning
@@ -28,13 +30,23 @@ func Extract(environ []string, prefix string) (vars map[string]string) {
 // normalize performs environment variable name normalization: word-break and
 // title-case based on underscore boundaries. This allows case-sensitive
 // matching to typical Go element names ("SOME_VARIABLE" => "SomeVariable").
+// It also recognizes known initialisms, and makes them all upper-case
+// ("XML_CERT_ID" => "XMLCertID").
 func normalize(from string) (to string) {
 	var b strings.Builder
 	parts := strings.Split(from, "_")
 
 	for _, p := range parts {
+		// TODO: inspect the error from the Builder
+
+		// Ensure initialisms are written in all upper-case
+		if names.IsInitialism(p) {
+			b.WriteString(strings.ToUpper(p))
+			continue
+		}
+
+		// All other parts are written CamelCased
 		for i, r := range p {
-			// We should inspect the error... that's a TODO...
 			if i == 0 {
 				// I'm not sure if strictly speaking this should be unicode.ToTitle(),
 				// but I think in practice it's 99% identical.
@@ -44,5 +56,6 @@ func normalize(from string) (to string) {
 			}
 		}
 	}
+
 	return b.String()
 }

@@ -50,11 +50,11 @@ The code in `main()` is as simple as:
 package main
 
 import (
-  "github.com/JaredReisinger/drone-plugin-helper/cmd"
+  "github.com/JaredReisinger/drone-plugin-helper/simple"
 )
 
 func main() {
-  cmd.DronePlugin("ls", &Params{})
+  simple.Exec("ls", &Params{})
 }
 ```
 
@@ -127,12 +127,10 @@ Similarly, the vast majority have a 1-to-1 mapping between a config value and th
 
 ## TODO (ideas)
 
-* [X] tests for env-parsing code
+* [X] ~~handle "well-known" all-caps abbreviations "TLS", "XML", etc., so that they are parsed correctly: `TLSXMLInfo` -> `TLS` `XML` `Info` > `--tls-xml-info`.  Similarly, `PLUGIN_TLS_XML_INFO` should become `TLSXMLInfo`, not `TlsXmlInfo`.~~
 
-* [X] docs for env-parsing code
+* [X] ~~put the current `cmd.DronePlugin()` into a separate package for "all-in-one" tools.  Perhaps `allInOne` or `simple`?~~ `simple.Exec()`
 
-* [X] command-line generation
-
-* [ ] handle "well-known" all-caps abbreviations "TLS", "XML", etc., so that they are parsed correctly: `TLSXMLInfo` -> `TLS` `XML` `Info` > `--tls-xml-info`.  Similarly, `PLUGIN_TLS_XML_INFO` should become `TLSXMLInfo`, not `TlsXmlInfo`.
+* [ ] add (to `simple` as previous?) a helper for typical "subcommand" behavior, a la `helm`.  This would allow an easy "map the initial command to a param set" which is another 80/20 case.
 
 * [ ] helper that can generate a stub doc showing the supported environment vsriables and the allowed syntax... and the mapping to eventual command-line?

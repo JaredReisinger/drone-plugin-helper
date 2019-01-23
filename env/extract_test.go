@@ -12,6 +12,8 @@ func TestNormalize(t *testing.T) {
 		{"one", "One"},
 		{"ONE", "One"},
 		{"oNe", "One"},
+		{"xml", "XML"},
+		{"xml_cert_id", "XMLCertID"},
 	}
 
 	for _, ex := range examples {

@@ -102,15 +102,15 @@ func TestSetFieldInt(t *testing.T) {
 	for _, ex := range examples {
 		local := ex
 		t.Run(fmt.Sprintf("%v %s", local.typ, local.from), func(t *testing.T) {
-			var dummy int64
+			dummy := reflect.New(local.typ).Elem()
 			err := setField(
 				local.from,
-				reflect.ValueOf(&dummy).Elem(),
-				reflect.StructField{Name: "Dummy", Type: local.typ})
+				dummy,
+				reflect.StructField{Name: "Dummy"})
 			if local.valid {
 				if err != nil {
 					t.Errorf("unexpected error setting %v to %q", local.typ, local.from)
-				} else if dummy != local.expected {
+				} else if dummy.Int() != local.expected {
 					t.Errorf("unexpected int value from %q: got %d, expected %d", local.from, dummy, local.expected)
 				}
 
@@ -144,15 +144,15 @@ func TestSetFieldUint(t *testing.T) {
 	for _, ex := range examples {
 		local := ex
 		t.Run(fmt.Sprintf("%v %s", local.typ, local.from), func(t *testing.T) {
-			var dummy uint64
+			dummy := reflect.New(local.typ).Elem()
 			err := setField(
 				local.from,
-				reflect.ValueOf(&dummy).Elem(),
-				reflect.StructField{Name: "Dummy", Type: local.typ})
+				dummy,
+				reflect.StructField{Name: "Dummy"})
 			if local.valid {
 				if err != nil {
 					t.Errorf("unexpected error setting %v to %q", local.typ, local.from)
-				} else if dummy != local.expected {
+				} else if dummy.Uint() != local.expected {
 					t.Errorf("unexpected int value from %q: got %d, expected %d", local.from, dummy, local.expected)
 				}
 			} else {
@@ -183,8 +183,8 @@ func TestSetFieldUnsupportedTypeError(t *testing.T) {
 	dummy := &str
 	err := setField(
 		"dummy",
-		reflect.ValueOf(&dummy).Elem(),
-		reflect.StructField{Name: "Dummy", Type: reflect.TypeOf(dummy)})
+		reflect.ValueOf(dummy),
+		reflect.StructField{Name: "Dummy"})
 
 	if err == nil {
 		t.Error("missing expected error setting unsupported type")

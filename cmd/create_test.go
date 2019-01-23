@@ -15,6 +15,7 @@ func TestFieldToParamName(t *testing.T) {
 		{"TwoWords", "two-words"},
 		{"ThreeWith1Number", "three-with1-number"},
 		{"invalidFormat", ""},
+		{"TLSCertID", "tls-cert-id"},
 	}
 
 	for _, ex := range examples {

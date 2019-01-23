@@ -5,14 +5,16 @@ import (
 	"log"
 	"os"
 
-	"github.com/JaredReisinger/drone-plugin-helper/cmd"
+	// "github.com/JaredReisinger/drone-plugin-helper/cmd"
 	"github.com/JaredReisinger/drone-plugin-helper/env"
+	"github.com/JaredReisinger/drone-plugin-helper/simple"
 )
 
 const (
 	envPrefix string = "PLUGIN_"
 )
 
+// GlobalParams are the options available for any/all helm commands
 type GlobalParams struct {
 	Command                 string `cmd:",positional"`
 	Debug                   bool
@@ -27,6 +29,7 @@ type GlobalParams struct {
 	Help bool
 }
 
+// ListParams are the options for "helm list"
 type ListParams struct {
 	GlobalParams
 	All         bool
@@ -42,12 +45,12 @@ type ListParams struct {
 	Pending     bool
 	Reverse     bool
 	Short       bool
-	Tls         bool
-	TlsCaCert   string // golint wants TLSCaCert...
-	TlsCert     string
-	TlsHostname string
-	TlsKey      string
-	TlsVerify   bool
+	TLS         bool
+	TLSCaCert   string // golint wants TLSCaCert...
+	TLSCert     string
+	TLSHostname string
+	TLSKey      string
+	TLSVerify   bool
 }
 
 func main() {
@@ -86,5 +89,5 @@ func main() {
 	//
 	// cmd.Exec("helm", params)
 
-	cmd.DronePlugin("helm", params)
+	simple.Exec("helm", params)
 }
