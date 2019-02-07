@@ -20,9 +20,15 @@ Usage: curl [options...] <url>
      --cert-type <type> Certificate file type (DER/PEM/ENG)
 ```
 
-... you only need to create the following:
+The code is as simple as:
 
 ```Go
+package main
+
+import (
+  "github.com/JaredReisinger/drone-plugin-helper/simple"
+)
+
 type Params struct {
   AbstractUnixSocket string
   Anyauth            bool
@@ -34,32 +40,6 @@ type Params struct {
   CertStatus         bool
   CertType           string
 }
-```
-
-The library will take care of matching these with the environment variables
-
-```text
-PLUGIN_ABSTRACT_UNIX_SOCKET
-PLUGIN_ANYAUTH
-PLUGIN_APPEND
-PLUGIN_BASIC
-PLUGIN_CACERT
-PLUGIN_CAPATH
-PLUGIN_CERT
-PLUGIN_CERT_STATUS
-PLUGIN_CERT_TYPE
-```
-
-... and then generating the appropriate matching command-lines.
-
-The code in `main()` is then as simple as:
-
-```Go
-package main
-
-import (
-  "github.com/JaredReisinger/drone-plugin-helper/simple"
-)
 
 func main() {
   simple.Exec("curl", &Params{})
@@ -68,10 +48,38 @@ func main() {
 
 All that’s left is for you to package the tool along with the Go executable into a Docker image.
 
+Because of the way that Drone maps settings to environment variables, and the way that `drone-plugin-helper` maps these names to Go member fields, your `drone.yml` file could then specify (for example):
+
+```yaml
+some_curl_step:
+  image: drone-curl
+  anyauth: true
+  cacert: ./some/cert
+  cert_status: true
+  cert_type: PEM
+```
+
+... and `drone-plugin-helper` would generate the final command-line:
+
+```sh
+curl --anyauth --cacert ./some/cert --cert-status --cert-type PEM
+```
+
+Behind the scenes, Drone maps the settings to the environment variables:
+
+```text
+PLUGIN_ANYAUTH=true
+PLUGIN_CACERT=./some/cert
+PLUGIN_CERT_STATUS=true
+PLUGIN_CERT_TYPE=PEM
+```
+
+... and `drone_plugin_helper` matches these with the `Anyauth`, `Cacert`, `CertStatus`, and `CertType` members.
+
 
 ### “Subcommand”-style tools
 
-Another very common pattern for command-line tools is for the initial command-line arguemnt to be a subcommand, often with its own specific options.  Tools like `git` and `helm` are examples of this.  Since this is such a common pattern, there is a helper for this, as well.  The `example/` subdirectory uses this helper to show how a plugin for `helm` could be written.
+Another very common pattern for command-line tools is for the initial command-line argument to be a subcommand, often with its own specific options.  Tools like `git` and `helm` are examples of this.  Since this is such a common pattern, there is a helper for this, as well.  The [`example/`](./example/) subdirectory uses this helper to show how a plugin for `helm` could be written. (See [Example / Case study](#example--case-study) below for further information.)
 
 
 ### Overriding the defaults
@@ -80,7 +88,7 @@ If the helpers’ default processing doesn’t meet your needs, you can tag the 
 
 ```Go
 type Params struct {
-  WeirdName string `cmd:"--surprise"` // use "--surprise" instead of "--weird-name" as the option name
+  WeirdName string `cmd:"--surprise"`   // use "--surprise" instead of "--weird-name" as the option name
   Command   string `cmd:",positional"`  // use the value directly, with no "--command" flag prefix
   Extra     string `cmd:",omit"`
 }
@@ -88,13 +96,19 @@ type Params struct {
 
 But please see “Best practices”, below, for ways to avoid needing these overrides.
 
+
+### More-complex handling
+
+While the behavior of [`drone-plugin-helper/simple`](./simple/) should handle the vast majority of cases, feel free to use the [`/env`](./env/) or [`/cmd`](./cmd/) packages directly if you need to add your own logic in between the environment variable parsing and the command-line generation.  You may find that [`/env`](./env/) alone is a simpler way to expose your plugin’s parameters even if you’re not wrapping an underlying command-line tool.
+
+
 ## Best practices
 
 ### Work “bottom-up”
 
-The ultimate goal is to generate a command-line for the underlying tool, so it makes sense to choose struct member names and types that facilitate this.  Doing so will reduce the need for struct field tag metadata to “fix” the command-line option names.  The `drone-plugin-helper/cmd` methods were designed to generate the “expected” command-line option name based on the Go name: the field `Debug` generates an option named `--debug`, and the field `TLSCert` generates `--tls-cert`.
+The ultimate goal is to generate a command-line for the underlying tool, so it makes sense to choose struct member names and types that facilitate this.  Doing so will reduce the need for struct field tag metadata to “fix” the command-line option names.  The `drone-plugin-helper/cmd` methods were designed to generate the “expected” command-line option name based on the Go name: the field `Basic` generates an option named `--basic`, and the field `CertStatus` generates `--cert-status`.
 
-Similar logic in `drone-plugin-helper/env` will look for environment variables with the equivalent environment name: `Debug` looks for `PLUGIN_DEBUG`, and `TLSCert` looks for `PLUGIN_TLS_CERT`
+The rule of thumb in naming a Go member for a command-line parameter is to capitalize the first letter of each hyphen-separated term, and then remove the hyphens: `--cert-status` ⇒ `--Cert-Status` ⇒ `CertStatus`.  The helpers are aware of Go's linting rules about capitalizing certain acronyms and respects them.  For example, the proper Go member name for `--tls-cert` is `TLSCert` (not `TlsCert`).  Similar logic in `drone-plugin-helper/env` will look for environment variables with the equivalent environment name: a `TLSCert` member looks for the `PLUGIN_TLS_CERT` environment variable.
 
 
 ### Use pointers if “zero values” are valid options
@@ -114,14 +128,11 @@ then if the environment variables are `PLUGIN_EXAMPLE1=0` and `PLUGIN_EXAMPLE2=0
 
 > NOTE: Would it be better to recommend "use pointers by default" because it more accurately passes along the intent of the caller?
 
+
 ## Example / Case study
 
-As a case study, see `./example/plugin.go` to see how `drone-plugin-helper/env` and `drone-plugin-helper/cmd` would be used to create a plugin for Helm.  You can try it out yourself with:
+As a case study, see [`example/`](./example/) to see how `drone-plugin-helper`could be used to create a plugin for Helm.
 
-```bash
-go build -v -o ./plugin-example ./example
-PLUGIN_COMMAND=help ./plugin-example
-```
 
 ----
 
@@ -159,6 +170,6 @@ Similarly, the vast majority have a 1-to-1 mapping between a config value and th
 
 * [X] ~~put the current `cmd.DronePlugin()` into a separate package for "all-in-one" tools.  Perhaps `allInOne` or `simple`?~~ `simple.Exec()`
 
-* [ ] add (to `simple` as previous?) a helper for typical "subcommand" behavior, a la `helm`.  This would allow an easy "map the initial command to a param set" which is another 80/20 case.
+* [X] ~~add (to `simple` as previous?) a helper for typical "subcommand" behavior, a la `helm`.  This would allow an easy "map the initial command to a param set" which is another 80/20 case.~~
 
 * [ ] helper that can generate a stub doc showing the supported environment vsriables and the allowed syntax... and the mapping to eventual command-line?

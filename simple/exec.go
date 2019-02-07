@@ -1,12 +1,16 @@
 package simple
 
 import (
+	"fmt"
 	"log"
 	"os"
 
 	"github.com/JaredReisinger/drone-plugin-helper/cmd"
 	"github.com/JaredReisinger/drone-plugin-helper/env"
 )
+
+// TODO: better name than "Exec()"?  That doesn't imply any of the parsing that
+// will occur.  Perhaps "Handoff()", or "Passthrough()"?
 
 // Exec is the all-in-one, "just wrap a command-line tool" method.  If
 // you don't need to inspect the values and simply need a one-to-one mapping
@@ -21,25 +25,32 @@ func Exec(command string, params interface{}) {
 	cmd.Exec(command, params)
 }
 
-// Subcommand is minimal param data needed to choose subcommand-specific
-// parameters.  For convenience, it can also be used as the first embedded
-// field in any command-specific parameter struct definitions.  It assumes that
-// the subcommand is indicated via the PLUGIN_COMMAND environment variable.
-type Subcommand struct {
-	Command string `cmd:",positional"`
+// Command is minimal param data needed to choose command-specific parameters.
+// For convenience, it can also be used as the first embedded field in any
+// command-specific parameter struct definitions.  It assumes that the command
+// is indicated via the PLUGIN_COMMAND environment variable, and any subcommand
+// via PLUGIN_SUBCOMMAND.
+type Command struct {
+	Command    string `cmd:",positional"`
+	Subcommand string `cmd:",positional"`
 }
 
-// ExecSubcommand is the all-in-one method for tools which have subcommands,
+// ExecCommand is the all-in-one method for tools which have subcommands,
 // like `git` or `helm`.
-func ExecSubcommand(command string, paramsMap map[string]interface{}) {
-	subcommand := &Subcommand{}
-	_, err := env.Parse(env.Extract(os.Environ(), "PLUGIN_"), subcommand)
+func ExecCommand(command string, paramsMap map[string]interface{}) {
+	commandParams := &Command{}
+	_, err := env.Parse(env.Extract(os.Environ(), "PLUGIN_"), commandParams)
 	if err != nil {
 		log.Fatalf("error parsing environment: %+v\n", err)
 	}
-	params, ok := paramsMap[subcommand.Command]
+	key := commandParams.Command
+	if commandParams.Subcommand != "" {
+		key = fmt.Sprintf("%s %s", commandParams.Command, commandParams.Subcommand)
+	}
+
+	params, ok := paramsMap[key]
 	if !ok {
-		log.Fatalf("subcommand %q not recognized\n", subcommand.Command)
+		log.Fatalf("command %q not recognized\n", key)
 	}
 
 	Exec(command, params)
